@@ -1,0 +1,192 @@
+// 
+
+#include "SetPoints.h"
+#include "WakeUp.h"
+#include "Sound.h"
+#include "StateMachine.h"
+#include "PageMain.h"
+#include "PIDTemperature.h"
+#include "TempWaveForm.h"
+#include "Libs/MsTimer2.h"
+#include "Translations.h"
+
+int maxTemperature;
+byte setPointsNumber;
+byte currentSetPoint;
+bool setPointTerminated;
+bool setPointTimerTerminated;
+double timeElapsed;
+int toleranceSetPoint = 1;
+#define TIMER_RATIO 500
+
+void SetPoints::onStop()
+{
+	currentSetPoint = setPointsNumber;
+}
+
+bool SetPoints::onStart()
+{
+	currentSetPoint = 0; //First set point is the current temperature;
+	setNextSetPoint();
+}
+
+SetPoints::SetPoints()
+{
+
+}
+
+SetPoints::firstSetPoint(int temp, int time, bool cursor, int index)
+{
+	setPointsNumber = 0;
+	addSetPoint(20, 0, cursor, index);
+	addSetPoint(temp, time, cursor, index);
+}
+
+SetPoints::addSetPoint(int temp, int time, bool cursor, int index)
+{
+	this->timeSP[setPointsNumber] = time;
+	this->tempSP[setPointsNumber] = temp;
+	this->cursorSP[setPointsNumber] = cursor;
+	this->indexSP[setPointsNumber++] = index;
+	totalTime += time;
+	maxTemperature = max(temp, maxTemperature);
+}
+
+SetPoints::getSetPoint(int inIter, int *time, int *temp, bool *cursor, int *index)
+{
+	*temp = temp[inIter];
+	*time = time[inIter];
+	*cursor = cursor[inIter];
+	*index = index[inIter];
+}
+
+void SetPoints::setSetPointTimer(long seconds)
+{
+	Serial.println("\nsetTimer(): " + String(seconds));
+	MsTimer2::set(seconds * 500, onSetPointTimerTerminated); // call every 5000 1ms "ticks"
+	MsTimer2::start();
+}
+
+static void onSetPointTimerTerminated()
+{
+	//FlexiTimer2::stop();
+	Serial.println("onSetPointTimerTerminated!!!!!!!");
+
+	setPointTimerTerminated = true;
+}
+
+int SetPoints::getTemperatureFromTime(long time, long time1, long time2, int temp1, int temp2)
+{
+	double dTemp = temp2 - temp1;
+	double dTime = time2 - time1;
+
+	double a =  dTemp / dTime;
+	double b = (double) temp1 - (a * time1);
+	double tempToReach = a * time + b;
+	if(tempToReach > temp2) tempToReach = temp2;
+
+	Serial.println("\nCurrentSetPoint: " + String(currentSetPoint));
+	Serial.println("dTemp: " + String(dTemp));
+	Serial.println("dTime: " + String(dTime));
+	Serial.println("a: " + String(a));
+	Serial.println("b: " + String(a));
+	Serial.println("getTemperatureFromTime: " + String(time) + ", " +String(time1) + ", " +String(time2) + ", " +String(temp1) + ", " +String(temp2) );
+	Serial.println("Temperature to reach: " + String(tempToReach));
+	Serial.println("Temperature: " + String(PIDTemperature.getTemperature()));
+
+	if(isRampSetPoint())
+		if (temp2 > temp1)
+			setPointTerminated =(tempToReach - PIDTemperature.getTemperature() <= toleranceSetPoint) &&  (PIDTemperature.getTemperature() >= temp2 - toleranceSetPoint);
+		else
+			setPointTerminated =(PIDTemperature.getTemperature() - tempToReach <= toleranceSetPoint) &&  (PIDTemperature.getTemperature() <= temp2 + toleranceSetPoint);
+	else if (setPointTimerTerminated)
+	{
+		setPointTimerTerminated = false;
+		setPointTerminated = true;
+	}
+	
+	return tempToReach;
+}
+
+void SetPoints::update()
+{
+	long count = MsTimer2::count * 2;
+	//Serial.println("Timer Count: " + String(count));
+	if(currentSetPoint)
+		PIDTemperature.setSetPointTemperature(getTemperatureFromTime(count / 1000, 0, timeSP[currentSetPoint], tempSP[currentSetPoint-1], tempSP[currentSetPoint]));
+	else
+		PIDTemperature.setSetPointTemperature(0);
+
+	if(setPointTerminated)
+	{
+		setPointTerminated = false;
+	
+		if(nextSetPointExist())
+			SetPointsProdAndDef.prodSetPoints.setNextSetPoint();
+	}
+}
+
+bool SetPoints::nextSetPointExist()
+{
+	return (currentSetPoint < setPointsNumber);
+}
+
+void SetPoints::setRange()
+{
+	TempWaveForm.setRange(maxTemperature, totalTime);
+}
+
+void SetPoints::setNextSetPoint()
+{
+	currentSetPoint ++;
+	Serial.println("setNextSetPoint " + String(currentSetPoint) + ", Temperature: " +  String(tempSP[currentSetPoint]) + "°");
+	setSetPointTimer(isRampSetPoint() ? 36000 : timeSP[currentSetPoint]);
+	PageMain.refreshStatusText(TEXT_RUNNING + String(tempSP[currentSetPoint]) + "°");
+	Sound.playSequence(1);
+}
+
+bool SetPoints::isRampSetPoint()
+{
+	return cursorSP[currentSetPoint];
+}
+
+SetPointsClass::SetPointsClass()
+{
+	prodSetPoints.firstSetPoint(30, 8, true, 0); // Rising   SetPoint 1
+
+	prodSetPoints.addSetPoint(30, 10, false, 0);   //  SetPoint 2
+	prodSetPoints.addSetPoint(35, 8, true, 0); // Rising  SetPoint 3
+	prodSetPoints.addSetPoint(35, 10, false, 0); 
+	prodSetPoints.addSetPoint(20, 8, true, 0); // Rising
+	prodSetPoints.addSetPoint(0, 1, true, 0); // Last SetPoint to zero
+	prodSetPoints.setRange();
+}
+
+SetPointsClass::prodToDef()
+{
+	for(byte i=0; i < setPointsNumber; i++)
+	{
+		defSetPoints.tempSP[i]	= prodSetPoints.tempSP[i];
+		defSetPoints.timeSP[i]	= prodSetPoints.timeSP[i];
+		defSetPoints.cursorSP[i]	= prodSetPoints.cursorSP[i];
+		defSetPoints.indexSP[i]	= prodSetPoints.indexSP[i];
+	}
+}
+
+SetPointsClass::defToProd()
+{
+	for(byte i=0; i < setPointsNumber; i++)
+	{
+		prodSetPoints.tempSP[i]	= defSetPoints.tempSP[i];
+		prodSetPoints.timeSP[i]	= defSetPoints.timeSP[i];
+		prodSetPoints.cursorSP[i]	= defSetPoints.cursorSP[i];
+		prodSetPoints.indexSP[i]	= defSetPoints.indexSP[i];
+	}
+}
+
+bool SetPointsClass::update()
+{
+	prodSetPoints.update();
+}
+
+SetPointsClass SetPointsProdAndDef;

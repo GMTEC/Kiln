@@ -1,0 +1,25 @@
+// 
+#include "NextionIncludes.h"
+#include "PageSetPoints.h"
+#include "PageMain.h"
+
+void PageSetPointsClass::init()
+{
+
+}
+
+static void PageSetPointsClass::onCancelSetPoints(void *ptr)
+{
+	Serial.println("onCancelSetPoints");
+	//sendCommand("page 2");
+}
+
+static void PageSetPointsClass::onOKSetPoints(void *ptr)
+{
+	Serial.println("onCancelSetPoints");
+	
+	//sendCommand("page 2");
+}
+
+PageSetPointsClass PageSetPoints;
+

@@ -1,0 +1,56 @@
+// SetPoints.h
+
+#ifndef _SETPOINTS_h
+#define _SETPOINTS_h
+
+#if defined(ARDUINO) && ARDUINO >= 100
+	#include "Arduino.h"
+#else
+	#include "WProgram.h"
+#endif
+	#include "Libs/QList.h";
+
+class SetPoints
+{
+	public:
+	long timeSP[8];
+	int tempSP[8];
+	bool cursorSP[8];
+	int indexSP[8];
+
+void onStop();
+	public:
+	SetPoints();
+	firstSetPoint(int temp, int time, bool cursor, int index);
+	int totalTime;
+
+	addSetPoint(int temp, int time, bool cur, int ind);
+	getSetPoint(int inIter, int *inTime, int *inTemp, bool *inCursor, int *inIndex);
+	void setSetPointTimer(long seconds);
+	int getTemperatureFromTime(long time, long time1, long time2, int temp1, int temp2);
+	static void callBackAfterDelay();
+
+	void update();
+	void setNextSetPoint();
+	bool isRampSetPoint();
+	bool onStart();
+	bool nextSetPointExist();
+	void setRange();
+};
+
+class SetPointsClass
+{
+	public:
+	SetPointsClass();
+	prodToDef();
+	defToProd();
+	bool update();
+	SetPoints prodSetPoints;
+	SetPoints defSetPoints;
+};
+
+static void onSetPointTimerTerminated();
+extern SetPointsClass SetPointsProdAndDef;
+
+#endif
+
